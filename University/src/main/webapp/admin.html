@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>后台管理 · 校园二手教材</title>
+    <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+<header id="app-header"></header>
+
+<main class="container">
+    <div class="stat-grid" id="stats"></div>
+
+    <div class="card">
+        <div class="tabs">
+            <div class="tab active" data-panel="users">用户管理</div>
+            <div class="tab" data-panel="books">教材管理</div>
+            <div class="tab" data-panel="orders">订单查询</div>
+        </div>
+        <div style="display:flex;gap:10px;margin-bottom:14px">
+            <input class="input" id="keyword" placeholder="输入用户名 / 书名 / 订单号搜索">
+            <button class="btn" id="search-btn">搜索</button>
+        </div>
+        <div id="panel"><div class="loading">加载中…</div></div>
+        <div id="pager" class="pager"></div>
+    </div>
+</main>
+
+<script src="js/app.js"></script>
+<script>
+    (async function () {
+        const me = await renderHeader();
+        if (requireLogin(me)) return;
+        if (me.role !== 1) {
+            document.getElementById('panel').innerHTML = emptyHtml('需要管理员权限');
+            return;
+        }
+
+        const panelEl = document.getElementById('panel');
+        const pagerEl = document.getElementById('pager');
+        let panel = 'users';
+        let currentPage = 1;
+
+        async function loadStats() {
+            const data = await api.get('admin/stats');
+            const items = [
+                ['用户总数', data.userCount], ['教材总数', data.bookCount],
+                ['在售教材', data.onSaleBookCount], ['订单总数', data.orderCount],
+                ['已完成订单', data.completedOrderCount], ['评价总数', data.reviewCount],
+                ['成交金额', '¥' + money(data.completedAmount)]
+            ];
+            document.getElementById('stats').innerHTML = items.map(([label, value]) =>
+                '<div class="stat"><b>' + esc(value) + '</b><span>' + label + '</span></div>'
+            ).join('');
+        }
+
+        function userRows(list) {
+            return '<table class="table"><thead><tr><th>ID</th><th>用户名</th><th>昵称</th><th>角色</th>'
+                + '<th>信用分</th><th>状态</th><th>注册时间</th><th>操作</th></tr></thead><tbody>'
+                + list.map(u => '<tr><td>' + u.id + '</td><td>' + esc(u.username) + '</td><td>' + esc(u.nickname) + '</td>'
+                    + '<td>' + esc(u.roleLabel) + '</td><td>' + esc(u.creditScore) + '</td>'
+                    + '<td><span class="badge ' + (u.status === 1 ? 'danger' : 'ok') + '">' + esc(u.statusLabel) + '</span></td>'
+                    + '<td>' + esc(u.createdAt || '') + '</td>'
+                    + '<td>' + (u.status === 1
+                        ? '<button class="btn btn-ghost btn-sm" data-action="user" data-id="' + u.id + '" data-status="0">解封</button>'
+                        : '<button class="btn btn-danger btn-sm" data-action="user" data-id="' + u.id + '" data-status="1">封禁</button>')
+                    + '</td></tr>').join('')
+                + '</tbody></table>';
+        }
+
+        function bookRows(list) {
+            return '<table class="table"><thead><tr><th>ID</th><th>教材</th><th>卖家</th><th>售价</th>'
+                + '<th>库存</th><th>状态</th><th>操作</th></tr></thead><tbody>'
+                + list.map(b => '<tr><td>' + b.id + '</td>'
+                    + '<td><a href="book-detail.html?id=' + b.id + '"><b>' + esc(b.title) + '</b></a>'
+                    + '<div class="muted" style="font-size:12px">' + esc(b.categoryName || '') + '</div></td>'
+                    + '<td>' + esc(b.sellerNickname || '') + '</td><td>¥' + money(b.price) + '</td>'
+                    + '<td>' + b.stock + '</td>'
+                    + '<td><span class="badge ' + (b.status === 1 ? 'ok' : 'gray') + '">' + esc(b.statusLabel) + '</span></td>'
+                    + '<td>' + (b.status === 1
+                        ? '<button class="btn btn-ghost btn-sm" data-action="book" data-id="' + b.id + '" data-status="2">下架</button>'
+                        : '<button class="btn btn-ghost btn-sm" data-action="book" data-id="' + b.id + '" data-status="1">上架</button>')
+                    + '</td></tr>').join('')
+                + '</tbody></table>';
+        }
+
+        function orderRows(list) {
+            if (!list.length) return emptyHtml('没有订单');
+            return '<table class="table"><thead><tr><th>订单号</th><th>教材</th><th>买家</th><th>卖家</th>'
+                + '<th>金额</th><th>状态</th><th>下单时间</th></tr></thead><tbody>'
+                + list.map(o => '<tr><td>' + esc(o.orderNo) + '</td>'
+                    + '<td><a href="order-detail.html?id=' + o.id + '">' + esc(o.bookTitle) + '</a></td>'
+                    + '<td>' + esc(o.buyerNickname || '') + '</td><td>' + esc(o.sellerNickname || '') + '</td>'
+                    + '<td>¥' + money(o.totalAmount) + '</td>'
+                    + '<td><span class="badge">' + esc(o.statusLabel) + '</span></td>'
+                    + '<td>' + esc(o.createdAt || '') + '</td></tr>').join('')
+                + '</tbody></table>';
+        }
+
+        async function load(page) {
+            currentPage = page || 1;
+            panelEl.innerHTML = '<div class="loading">加载中…</div>';
+            const params = { q: document.getElementById('keyword').value.trim(), page: currentPage, size: 10 };
+            let data;
+            if (panel === 'users') {
+                data = await api.get('admin/users', params);
+                panelEl.innerHTML = data.list.length ? userRows(data.list) : emptyHtml('没有匹配的用户');
+            } else if (panel === 'books') {
+                data = await api.get('admin/books', params);
+                panelEl.innerHTML = data.list.length ? bookRows(data.list) : emptyHtml('没有匹配的教材');
+            } else {
+                data = await api.get('admin/orders', params);
+                panelEl.innerHTML = orderRows(data.list);
+            }
+            renderPager(pagerEl, data, load);
+        }
+
+        panelEl.addEventListener('click', async (e) => {
+            const btn = e.target.closest('button[data-action]');
+            if (!btn) return;
+            btn.disabled = true;
+            try {
+                const id = btn.dataset.id;
+                const status = Number(btn.dataset.status);
+                if (btn.dataset.action === 'user') {
+                    await api.put('admin/users/' + id + '/status', { status: status });
+                    toast('已更新用户状态', 'success');
+                } else {
+                    await api.put('admin/books/' + id + '/status', { status: status });
+                    toast('已更新教材状态', 'success');
+                }
+                load(currentPage);
+            } catch (err) {
+                btn.disabled = false;
+            }
+        });
+
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.onclick = () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                panel = tab.dataset.panel;
+                document.getElementById('keyword').value = '';
+                load(1);
+            };
+        });
+
+        document.getElementById('search-btn').onclick = () => load(1);
+        document.getElementById('keyword').addEventListener('keydown', e => {
+            if (e.key === 'Enter') load(1);
+        });
+
+        await loadStats();
+        load(1);
+    })();
+</script>
+</body>
+</html>

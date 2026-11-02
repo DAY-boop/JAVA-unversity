@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>教材市场 · 校园二手教材交易系统</title>
+    <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+<header id="app-header"></header>
+
+<main class="container">
+    <section class="hero">
+        <h1>让教材在校园里循环起来</h1>
+        <p>同校同学之间二手交易，省钱又环保，面交更方便</p>
+        <div class="search-bar">
+            <input id="keyword" class="input" placeholder="搜索书名、作者、课程名或 ISBN">
+            <button class="btn" id="search-btn">搜索</button>
+            <a class="btn btn-ghost" href="wanted.html" style="white-space:nowrap">发布求购</a>
+        </div>
+    </section>
+
+    <section class="card filters">
+        <select id="category" class="input"><option value="">全部类目</option></select>
+        <select id="condition" class="input">
+            <option value="">全部成色</option>
+            <option value="1">九五新</option>
+            <option value="2">九成新</option>
+            <option value="3">八成新</option>
+            <option value="4">七成新</option>
+            <option value="5">六成新及以下</option>
+        </select>
+        <input id="min-price" class="input" type="number" min="0" placeholder="最低价">
+        <input id="max-price" class="input" type="number" min="0" placeholder="最高价">
+        <select id="sort" class="input">
+            <option value="latest">最新发布</option>
+            <option value="priceAsc">价格从低到高</option>
+            <option value="priceDesc">价格从高到低</option>
+            <option value="hot">最多浏览</option>
+        </select>
+        <button class="btn btn-ghost" id="reset-btn">重置</button>
+    </section>
+
+    <div id="result-tip" class="muted" style="margin-bottom:12px"></div>
+    <div id="book-grid" class="grid-books"></div>
+    <div id="pager" class="pager"></div>
+</main>
+
+<script src="js/app.js"></script>
+<script>
+    (async function () {
+        await renderHeader();
+
+        const grid = document.getElementById('book-grid');
+        const pager = document.getElementById('pager');
+        const categorySelect = document.getElementById('category');
+        const keywordInput = document.getElementById('keyword');
+        const conditionSelect = document.getElementById('condition');
+        const minPrice = document.getElementById('min-price');
+        const maxPrice = document.getElementById('max-price');
+        const sortSelect = document.getElementById('sort');
+        const tip = document.getElementById('result-tip');
+        const PAGE_SIZE = 12;
+
+        // 类目下拉：一级作为分组，二级作为可选项
+        const tree = await api.get('categories');
+        tree.forEach(parent => {
+            const group = document.createElement('optgroup');
+            group.label = parent.name;
+            parent.children.forEach(child => {
+                const option = document.createElement('option');
+                option.value = child.id;
+                option.textContent = child.name;
+                group.appendChild(option);
+            });
+            categorySelect.appendChild(group);
+        });
+
+        async function load(page) {
+            grid.innerHTML = '<div class="loading">加载中…</div>';
+            const data = await api.get('books', {
+                q: keywordInput.value.trim(),
+                categoryId: categorySelect.value,
+                conditionLevel: conditionSelect.value,
+                minPrice: minPrice.value,
+                maxPrice: maxPrice.value,
+                sort: sortSelect.value,
+                page: page || 1,
+                size: PAGE_SIZE
+            });
+            tip.textContent = '共找到 ' + data.total + ' 本教材';
+            grid.innerHTML = data.list.length ? data.list.map(bookCard).join('') : emptyHtml('没有符合条件的教材，换个条件试试');
+            renderPager(pager, data, load);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        document.getElementById('search-btn').onclick = () => load(1);
+        keywordInput.addEventListener('keydown', e => { if (e.key === 'Enter') load(1); });
+        [categorySelect, conditionSelect, sortSelect].forEach(el => el.onchange = () => load(1));
+        [minPrice, maxPrice].forEach(el => el.onchange = () => load(1));
+        document.getElementById('reset-btn').onclick = () => {
+            keywordInput.value = '';
+            categorySelect.value = '';
+            conditionSelect.value = '';
+            minPrice.value = '';
+            maxPrice.value = '';
+            sortSelect.value = 'latest';
+            load(1);
+        };
+
+        load(1);
+    })();
+</script>
+</body>
+</html>

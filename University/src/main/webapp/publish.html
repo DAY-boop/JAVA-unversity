@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>发布教材 · 校园二手教材</title>
+    <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+<header id="app-header"></header>
+
+<main class="container">
+    <div class="card">
+        <h2 id="page-title">发布教材</h2>
+        <form id="book-form">
+            <div class="form-row">
+                <label>书名 *</label>
+                <input class="input" id="title" required maxlength="120">
+            </div>
+            <div class="form-grid">
+                <div class="form-row">
+                    <label>作者</label>
+                    <input class="input" id="author">
+                </div>
+                <div class="form-row">
+                    <label>出版社</label>
+                    <input class="input" id="publisher">
+                </div>
+                <div class="form-row">
+                    <label>版次</label>
+                    <input class="input" id="edition" placeholder="如：第 7 版">
+                </div>
+                <div class="form-row">
+                    <label>ISBN</label>
+                    <input class="input" id="isbn">
+                </div>
+                <div class="form-row">
+                    <label>适用课程</label>
+                    <input class="input" id="course-name" placeholder="如：高等数学（上）">
+                </div>
+                <div class="form-row">
+                    <label>类目 *</label>
+                    <select class="input" id="category" required></select>
+                </div>
+                <div class="form-row">
+                    <label>成色 *</label>
+                    <select class="input" id="condition">
+                        <option value="1">九五新</option>
+                        <option value="2">九成新</option>
+                        <option value="3" selected>八成新</option>
+                        <option value="4">七成新</option>
+                        <option value="5">六成新及以下</option>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <label>库存（本）*</label>
+                    <input class="input" id="stock" type="number" min="1" max="99" value="1" required>
+                </div>
+                <div class="form-row">
+                    <label>售价（元）*</label>
+                    <input class="input" id="price" type="number" min="0.01" step="0.01" required>
+                </div>
+                <div class="form-row">
+                    <label>原价（元）</label>
+                    <input class="input" id="original-price" type="number" min="0" step="0.01">
+                </div>
+            </div>
+            <div class="form-row">
+                <label>封面图片</label>
+                <div class="upload-box">
+                    <img class="upload-preview" id="cover-preview" alt="封面预览"
+                         src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='84' height='108'><rect width='84' height='108' fill='%23eef2f7'/></svg>">
+                    <div>
+                        <input type="file" id="cover-file" accept="image/*">
+                        <div class="muted" style="font-size:12px;margin-top:6px">支持 jpg / png，自动压缩后上传</div>
+                    </div>
+                </div>
+            </div>
+            <div class="form-row">
+                <label>教材描述</label>
+                <textarea class="input" id="description" maxlength="2000"
+                          placeholder="书况说明、有无笔记划线、是否附赠资料等"></textarea>
+            </div>
+            <button class="btn" type="submit" id="submit-btn">发布</button>
+            <a class="btn btn-ghost" href="my-books.html">返回我的发布</a>
+        </form>
+    </div>
+</main>
+
+<script src="js/app.js"></script>
+<script>
+    (async function () {
+        const me = await renderHeader();
+        if (requireLogin(me)) return;
+
+        const editId = qs('id');
+        let coverUrl = null;
+        const categorySelect = document.getElementById('category');
+        const tree = await api.get('categories');
+        tree.forEach(parent => {
+            const group = document.createElement('optgroup');
+            group.label = parent.name;
+            parent.children.forEach(child => {
+                const option = document.createElement('option');
+                option.value = child.id;
+                option.textContent = child.name;
+                group.appendChild(option);
+            });
+            categorySelect.appendChild(group);
+        });
+
+        if (editId) {
+            document.getElementById('page-title').textContent = '编辑教材';
+            document.getElementById('submit-btn').textContent = '保存修改';
+            const book = await api.get('books/' + editId, null, { silent: true }).catch(() => null);
+            if (!book || book.sellerId !== me.id) {
+                toast('只能编辑自己发布的教材', 'error');
+                setTimeout(() => location.href = 'my-books.html', 800);
+                return;
+            }
+            document.getElementById('title').value = book.title || '';
+            document.getElementById('author').value = book.author || '';
+            document.getElementById('publisher').value = book.publisher || '';
+            document.getElementById('edition').value = book.edition || '';
+            document.getElementById('isbn').value = book.isbn || '';
+            document.getElementById('course-name').value = book.courseName || '';
+            document.getElementById('category').value = book.categoryId;
+            document.getElementById('condition').value = book.conditionLevel;
+            document.getElementById('stock').value = book.stock;
+            document.getElementById('price').value = book.price;
+            document.getElementById('original-price').value = book.originalPrice || '';
+            document.getElementById('description').value = book.description || '';
+            coverUrl = book.coverUrl;
+            if (coverUrl) document.getElementById('cover-preview').src = coverUrl;
+        }
+
+        document.getElementById('cover-file').onchange = async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            try {
+                toast('图片上传中…');
+                const url = await uploadImage(file);
+                coverUrl = url;
+                document.getElementById('cover-preview').src = url;
+                toast('图片上传成功', 'success');
+            } catch (err) {
+                toast(err.message || '图片上传失败', 'error');
+            }
+        };
+
+        document.getElementById('book-form').onsubmit = async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('submit-btn');
+            const payload = {
+                title: document.getElementById('title').value.trim(),
+                author: document.getElementById('author').value.trim(),
+                publisher: document.getElementById('publisher').value.trim(),
+                edition: document.getElementById('edition').value.trim(),
+                isbn: document.getElementById('isbn').value.trim(),
+                courseName: document.getElementById('course-name').value.trim(),
+                categoryId: Number(categorySelect.value),
+                conditionLevel: Number(document.getElementById('condition').value),
+                stock: Number(document.getElementById('stock').value),
+                price: Number(document.getElementById('price').value),
+                originalPrice: document.getElementById('original-price').value
+                    ? Number(document.getElementById('original-price').value) : null,
+                coverUrl: coverUrl,
+                description: document.getElementById('description').value.trim()
+            };
+            btn.disabled = true;
+            try {
+                if (editId) {
+                    await api.put('books/' + editId, payload);
+                    toast('修改已保存', 'success');
+                } else {
+                    await api.post('books', payload);
+                    toast('发布成功', 'success');
+                }
+                setTimeout(() => location.href = 'my-books.html', 600);
+            } catch (err) {
+                btn.disabled = false;
+            }
+        };
+    })();
+</script>
+</body>
+</html>

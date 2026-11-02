@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 · 校园二手教材</title>
+    <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+<header id="app-header"></header>
+
+<main class="container">
+    <div class="auth-wrap">
+        <div class="card">
+            <h2>登录</h2>
+            <form id="login-form">
+                <div class="form-row">
+                    <label>用户名</label>
+                    <input class="input" id="username" autocomplete="username" required>
+                </div>
+                <div class="form-row">
+                    <label>密码</label>
+                    <input class="input" id="password" type="password" autocomplete="current-password" required>
+                </div>
+                <button class="btn btn-block" type="submit" id="submit-btn">登录</button>
+            </form>
+            <p class="muted mt">还没有账号？<a href="register.html" style="color:#2563eb">立即注册</a></p>
+        </div>
+    </div>
+</main>
+
+<script src="js/app.js"></script>
+<script>
+    (async function () {
+        await renderHeader();
+        const form = document.getElementById('login-form');
+        const btn = document.getElementById('submit-btn');
+
+        form.onsubmit = async (e) => {
+            e.preventDefault();
+            btn.disabled = true;
+            btn.textContent = '登录中…';
+            try {
+                const user = await api.post('auth/login', {
+                    username: document.getElementById('username').value.trim(),
+                    password: document.getElementById('password').value
+                });
+                toast('欢迎回来，' + user.nickname, 'success');
+                const redirect = qs('redirect') || 'index.html';
+                setTimeout(() => location.href = redirect, 400);
+            } catch (err) {
+                btn.disabled = false;
+                btn.textContent = '登录';
+            }
+        };
+    })();
+</script>
+</body>
+</html>

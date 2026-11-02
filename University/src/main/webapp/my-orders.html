@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的订单 · 校园二手教材</title>
+    <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+<header id="app-header"></header>
+
+<main class="container">
+    <div class="card">
+        <h2>我的订单</h2>
+        <div class="tabs">
+            <div class="tab active" data-role="buyer">我买到的</div>
+            <div class="tab" data-role="seller">我卖出的</div>
+        </div>
+        <div id="list"><div class="loading">加载中…</div></div>
+        <div id="pager" class="pager"></div>
+    </div>
+</main>
+
+<script src="js/app.js"></script>
+<script>
+    (async function () {
+        const me = await renderHeader();
+        if (requireLogin(me)) return;
+
+        const listEl = document.getElementById('list');
+        const pagerEl = document.getElementById('pager');
+        let role = 'buyer';
+        let currentPage = 1;
+
+        const STATUS_CLASS = { 0: 'warn', 1: 'badge', 2: '', 3: 'ok', 4: 'gray' };
+
+        function actions(order) {
+            const id = order.id;
+            const buttons = ['<a class="btn btn-ghost btn-sm" href="order-detail.html?id=' + id + '">查看详情</a>'];
+            if (role === 'buyer') {
+                if (order.status === 0) {
+                    buttons.push('<button class="btn btn-sm" onclick="orderAction(' + id + ',\'pay\')">付款</button>');
+                    buttons.push('<button class="btn btn-ghost btn-sm" onclick="orderAction(' + id + ',\'cancel\')">取消</button>');
+                } else if (order.status === 1) {
+                    buttons.push('<button class="btn btn-ghost btn-sm" onclick="orderAction(' + id + ',\'cancel\')">取消</button>');
+                } else if (order.status === 2) {
+                    buttons.push('<button class="btn btn-sm" onclick="orderAction(' + id + ',\'confirm\')">确认收货</button>');
+                } else if (order.status === 3) {
+                    buttons.push(order.reviewed
+                        ? '<span class="badge gray">已评价</span>'
+                        : '<a class="btn btn-sm" href="order-detail.html?id=' + id + '#review">去评价</a>');
+                }
+            } else {
+                if (order.status === 1) {
+                    buttons.push('<button class="btn btn-sm" onclick="orderAction(' + id + ',\'deliver\')">确认交付</button>');
+                } else if (order.status === 3 && !order.reviewed) {
+                    buttons.push('<a class="btn btn-sm" href="order-detail.html?id=' + id + '#review">去评价</a>');
+                }
+            }
+            return buttons.join(' ');
+        }
+
+        function render(data) {
+            if (!data.list.length) {
+                listEl.innerHTML = emptyHtml(role === 'buyer' ? '还没有买过教材' : '还没有卖出过教材');
+                return;
+            }
+            listEl.innerHTML = data.list.map(order =>
+                '<div class="order-item">'
+                + '<div class="order-head"><span>订单号 ' + esc(order.orderNo) + ' · ' + esc(order.createdAt || '') + '</span>'
+                + '<span class="badge ' + (STATUS_CLASS[order.status] || '') + '">' + esc(order.statusLabel) + '</span></div>'
+                + '<div class="order-body">'
+                + '<img class="thumb" src="' + (order.bookCover ? esc(order.bookCover) : '') + '" alt="">'
+                + '<div class="info"><a href="book-detail.html?id=' + order.bookId + '"><b>' + esc(order.bookTitle) + '</b></a>'
+                + '<div class="muted" style="font-size:13px">'
+                + (role === 'buyer' ? '卖家：' + esc(order.sellerNickname || '') : '买家：' + esc(order.buyerNickname || ''))
+                + ' · 数量 ' + order.quantity + '</div></div>'
+                + '<div class="price">¥' + money(order.totalAmount) + '</div>'
+                + '</div>'
+                + '<div class="order-actions">' + actions(order) + '</div>'
+                + '</div>'
+            ).join('');
+        }
+
+        window.orderAction = async function (id, action) {
+            try {
+                if (action === 'pay') await api.put('orders/' + id + '/pay');
+                if (action === 'deliver') await api.put('orders/' + id + '/deliver');
+                if (action === 'confirm') await api.put('orders/' + id + '/confirm');
+                if (action === 'cancel') await api.put('orders/' + id + '/cancel', { reason: '用户主动取消' });
+                toast('操作成功', 'success');
+                load(currentPage);
+            } catch (e) { /* 已提示 */ }
+        };
+
+        async function load(page) {
+            currentPage = page || 1;
+            listEl.innerHTML = '<div class="loading">加载中…</div>';
+            const data = await api.get('orders', { role: role, page: currentPage, size: 8 });
+            render(data);
+            renderPager(pagerEl, data, load);
+        }
+
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.onclick = () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                role = tab.dataset.role;
+                load(1);
+            };
+        });
+
+        load(1);
+    })();
+</script>
+</body>
+</html>

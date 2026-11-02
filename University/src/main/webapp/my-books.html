@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的发布 · 校园二手教材</title>
+    <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+<header id="app-header"></header>
+
+<main class="container">
+    <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+            <h2>我的发布</h2>
+            <a class="btn" href="publish.html">发布新教材</a>
+        </div>
+        <div id="list"><div class="loading">加载中…</div></div>
+        <div id="pager" class="pager"></div>
+    </div>
+</main>
+
+<script src="js/app.js"></script>
+<script>
+    (async function () {
+        const me = await renderHeader();
+        if (requireLogin(me)) return;
+
+        const listEl = document.getElementById('list');
+        const pagerEl = document.getElementById('pager');
+
+        function statusBadge(book) {
+            const cls = book.status === 1 ? 'ok' : (book.status === 3 ? 'gray' : 'warn');
+            return '<span class="badge ' + cls + '">' + esc(book.statusLabel) + '</span>';
+        }
+
+        async function changeStatus(id, status) {
+            await api.put('books/' + id + '/status', { status: status });
+            toast(status === 1 ? '已上架' : '已下架', 'success');
+            load(currentPage);
+        }
+
+        window.changeStatus = changeStatus;
+
+        function render(data) {
+            if (!data.list.length) {
+                listEl.innerHTML = emptyHtml('你还没有发布过教材');
+                return;
+            }
+            const rows = data.list.map(book =>
+                '<tr>'
+                + '<td><img class="thumb" src="' + (book.coverUrl ? esc(book.coverUrl) : '') + '" alt=""></td>'
+                + '<td><a href="book-detail.html?id=' + book.id + '"><b>' + esc(book.title) + '</b></a>'
+                + '<div class="muted" style="font-size:12px">' + esc(book.categoryName || '') + ' · ' + esc(book.conditionLabel) + '</div></td>'
+                + '<td class="price">¥' + money(book.price) + '</td>'
+                + '<td>' + book.stock + '</td>'
+                + '<td>' + statusBadge(book) + '</td>'
+                + '<td>' + esc(book.createdAt || '') + '</td>'
+                + '<td style="white-space:nowrap">'
+                + '<a class="btn btn-ghost btn-sm" href="publish.html?id=' + book.id + '">编辑</a> '
+                + (book.status === 1
+                    ? '<button class="btn btn-ghost btn-sm" onclick="changeStatus(' + book.id + ',2)">下架</button>'
+                    : '<button class="btn btn-ghost btn-sm" onclick="changeStatus(' + book.id + ',1)">上架</button>')
+                + '</td></tr>'
+            ).join('');
+            listEl.innerHTML = '<table class="table"><thead><tr>'
+                + '<th>封面</th><th>教材</th><th>售价</th><th>库存</th><th>状态</th><th>发布时间</th><th>操作</th>'
+                + '</tr></thead><tbody>' + rows + '</tbody></table>';
+        }
+
+        let currentPage = 1;
+        async function load(page) {
+            currentPage = page || 1;
+            const data = await api.get('books/mine', { page: currentPage, size: 10 });
+            render(data);
+            renderPager(pagerEl, data, load);
+        }
+
+        load(1);
+    })();
+</script>
+</body>
+</html>

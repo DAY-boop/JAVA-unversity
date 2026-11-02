@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>订单详情 · 校园二手教材</title>
+    <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+<header id="app-header"></header>
+<main class="container"><div id="root"><div class="loading">加载中…</div></div></main>
+
+<script src="js/app.js"></script>
+<script>
+    (async function () {
+        const me = await renderHeader();
+        if (requireLogin(me)) return;
+
+        const root = document.getElementById('root');
+        const orderId = qs('id');
+        if (!orderId) {
+            location.href = 'my-orders.html';
+            return;
+        }
+
+        let order;
+        try {
+            order = await api.get('orders/' + orderId);
+        } catch (e) {
+            root.innerHTML = emptyHtml('订单不存在或无权查看');
+            return;
+        }
+
+        const isBuyer = me.id === order.buyerId;
+        const isSeller = me.id === order.sellerId;
+        const steps = ['待付款', '待交付', '待确认', '已完成'];
+
+        function timeline() {
+            const current = order.status === 4 ? -1 : order.status;
+            return '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">'
+                + steps.map((label, index) =>
+                    '<span class="badge ' + (index <= current ? 'ok' : 'gray') + '">' + (index + 1) + '. ' + label + '</span>'
+                ).join('') + '</div>';
+        }
+
+        function actionButtons() {
+            const buttons = [];
+            if (isBuyer && order.status === 0) {
+                buttons.push('<button class="btn" data-action="pay">付款</button>');
+            }
+            if (isSeller && order.status === 1) {
+                buttons.push('<button class="btn" data-action="deliver">确认交付</button>');
+            }
+            if (isBuyer && order.status === 2) {
+                buttons.push('<button class="btn" data-action="confirm">确认收货</button>');
+            }
+            if ((isBuyer || isSeller) && (order.status === 0 || order.status === 1)) {
+                buttons.push('<button class="btn btn-ghost" data-action="cancel">取消订单</button>');
+            }
+            return buttons.length ? '<div style="display:flex;gap:10px;margin-top:16px">' + buttons.join('') + '</div>' : '';
+        }
+
+        const rows = [
+            ['订单号', order.orderNo],
+            ['下单时间', order.createdAt],
+            ['付款时间', order.paidAt || '—'],
+            ['交付时间', order.deliveredAt || '—'],
+            ['完成时间', order.finishedAt || '—'],
+            ['交易地点', order.tradePlace || '—'],
+            ['联系方式', order.contact || '—'],
+            ['买家', order.buyerNickname || ''],
+            ['卖家', order.sellerNickname || ''],
+            ['备注', order.remark || '—'],
+            ['取消原因', order.cancelReason || '—']
+        ].map(([k, v]) => '<div><dt>' + k + '</dt><dd>' + esc(v) + '</dd></div>').join('');
+
+        let reviewHtml = '';
+        if (order.canReview) {
+            reviewHtml = '<div class="card" id="review"><h2>评价这笔交易</h2>'
+                + '<div class="form-row"><label>评分</label>'
+                + '<select class="input" id="rating">'
+                + '<option value="5">5 星 · 非常满意</option>'
+                + '<option value="4">4 星 · 满意</option>'
+                + '<option value="3">3 星 · 一般</option>'
+                + '<option value="2">2 星 · 不满意</option>'
+                + '<option value="1">1 星 · 很差</option>'
+                + '</select></div>'
+                + '<div class="form-row"><label>评价内容</label>'
+                + '<textarea class="input" id="content" maxlength="1000" placeholder="书况如何？沟通是否顺畅？"></textarea></div>'
+                + '<div class="form-row"><label>标签（选填，用逗号分隔）</label>'
+                + '<input class="input" id="tags" placeholder="如：书况很好,沟通顺畅"></div>'
+                + '<button class="btn" id="review-btn">提交评价</button></div>';
+        } else if (order.status === 3) {
+            reviewHtml = '<div class="card"><h2>评价</h2><p class="muted">'
+                + (order.reviewed ? '你已完成评价，感谢反馈！' : '订单已完成，等待对方评价。') + '</p></div>';
+        }
+
+        root.innerHTML =
+            '<div class="card">'
+            + '<h2>订单 ' + esc(order.statusLabel) + '</h2>'
+            + timeline()
+            + '<div class="order-body" style="padding:0 0 14px">'
+            + '<img class="thumb" style="width:60px;height:78px" src="' + (order.bookCover ? esc(order.bookCover) : '') + '" alt="">'
+            + '<div class="info"><a href="book-detail.html?id=' + order.bookId + '"><b>' + esc(order.bookTitle) + '</b></a>'
+            + '<div class="muted" style="font-size:13px">单价 ¥' + money(order.price) + ' × ' + order.quantity + '</div></div>'
+            + '<div class="price-lg">¥' + money(order.totalAmount) + '</div>'
+            + '</div>'
+            + actionButtons()
+            + '</div>'
+            + '<div class="card"><h2>订单信息</h2><dl class="meta-list">' + rows + '</dl></div>'
+            + reviewHtml;
+
+        root.querySelectorAll('button[data-action]').forEach(btn => {
+            btn.onclick = async () => {
+                const action = btn.dataset.action;
+                btn.disabled = true;
+                try {
+                    if (action === 'cancel') {
+                        await api.put('orders/' + order.id + '/cancel', { reason: '用户主动取消' });
+                    } else {
+                        await api.put('orders/' + order.id + '/' + action);
+                    }
+                    toast('操作成功', 'success');
+                    setTimeout(() => location.reload(), 500);
+                } catch (e) {
+                    btn.disabled = false;
+                }
+            };
+        });
+
+        const reviewBtn = document.getElementById('review-btn');
+        if (reviewBtn) {
+            reviewBtn.onclick = async () => {
+                reviewBtn.disabled = true;
+                try {
+                    await api.post('reviews', {
+                        orderId: Number(order.id),
+                        rating: Number(document.getElementById('rating').value),
+                        content: document.getElementById('content').value.trim(),
+                        tags: document.getElementById('tags').value.trim()
+                    });
+                    toast('评价成功', 'success');
+                    setTimeout(() => location.href = 'my-orders.html', 600);
+                } catch (e) {
+                    reviewBtn.disabled = false;
+                }
+            };
+        }
+
+        if (location.hash === '#review') {
+            const el = document.getElementById('review');
+            if (el) el.scrollIntoView({ behavior: 'smooth' });
+        }
+    })();
+</script>
+</body>
+</html>

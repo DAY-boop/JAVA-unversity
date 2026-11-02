@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>个人中心 · 校园二手教材</title>
+    <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+<header id="app-header"></header>
+
+<main class="container">
+    <div class="card">
+        <h2>个人资料</h2>
+        <div style="display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap">
+            <div style="text-align:center">
+                <img id="avatar-preview" class="upload-preview" style="width:96px;height:96px;border-radius:50%"
+                     src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='96' height='96'><rect width='96' height='96' fill='%23eef2f7'/></svg>" alt="头像">
+                <div style="margin-top:8px"><input type="file" id="avatar-file" accept="image/*" style="width:150px"></div>
+            </div>
+            <form id="profile-form" style="flex:1;min-width:260px">
+                <div class="form-grid">
+                    <div class="form-row"><label>用户名（不可修改）</label><input class="input" id="username" disabled></div>
+                    <div class="form-row"><label>昵称</label><input class="input" id="nickname"></div>
+                    <div class="form-row"><label>手机号</label><input class="input" id="phone"></div>
+                    <div class="form-row"><label>所在校区</label><input class="input" id="campus"></div>
+                </div>
+                <div class="muted" style="margin-bottom:12px">信用分：<b id="credit">100</b>（完成交易并收到好评会提升）</div>
+                <button class="btn" type="submit">保存资料</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>修改密码</h2>
+        <form id="password-form">
+            <div class="form-grid">
+                <div class="form-row"><label>原密码</label><input class="input" id="old-password" type="password" required></div>
+                <div class="form-row"><label>新密码（至少 6 位）</label><input class="input" id="new-password" type="password" required></div>
+            </div>
+            <button class="btn btn-ghost" type="submit">确认修改</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h2>我收到的评价</h2>
+        <div id="reviews"><div class="loading">加载中…</div></div>
+    </div>
+</main>
+
+<script src="js/app.js"></script>
+<script>
+    (async function () {
+        let me = await renderHeader();
+        if (requireLogin(me)) return;
+
+        let avatarUrl = me.avatar || null;
+        if (avatarUrl) document.getElementById('avatar-preview').src = avatarUrl;
+        document.getElementById('username').value = me.username || '';
+        document.getElementById('nickname').value = me.nickname || '';
+        document.getElementById('phone').value = me.phone || '';
+        document.getElementById('campus').value = me.campus || '';
+        document.getElementById('credit').textContent = me.creditScore || 100;
+
+        document.getElementById('avatar-file').onchange = async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            try {
+                avatarUrl = await uploadImage(file);
+                document.getElementById('avatar-preview').src = avatarUrl;
+                toast('头像已上传，记得保存资料', 'success');
+            } catch (err) {
+                toast(err.message || '上传失败', 'error');
+            }
+        };
+
+        document.getElementById('profile-form').onsubmit = async (e) => {
+            e.preventDefault();
+            const updated = await api.put('users/me', {
+                nickname: document.getElementById('nickname').value.trim(),
+                phone: document.getElementById('phone').value.trim(),
+                campus: document.getElementById('campus').value.trim(),
+                avatar: avatarUrl
+            });
+            toast('资料已保存', 'success');
+            setTimeout(() => location.reload(), 500);
+            return updated;
+        };
+
+        document.getElementById('password-form').onsubmit = async (e) => {
+            e.preventDefault();
+            try {
+                await api.put('users/me/password', {
+                    oldPassword: document.getElementById('old-password').value,
+                    newPassword: document.getElementById('new-password').value
+                });
+                toast('密码已修改，请重新登录', 'success');
+                setTimeout(() => api.post('auth/logout').finally(() => location.href = 'login.html'), 800);
+            } catch (err) { /* 已提示 */ }
+        };
+
+        const reviews = await api.get('reviews/mine');
+        const holder = document.getElementById('reviews');
+        holder.innerHTML = reviews.length ? reviews.map(r =>
+            '<div class="review"><div class="review-head">'
+            + '<span>' + esc(r.reviewerNickname || '匿名') + ' 评价了《' + esc(r.bookTitle || '') + '》 '
+            + '<span class="stars">' + stars(r.rating) + '</span></span>'
+            + '<span>' + esc(r.createdAt || '') + '</span></div>'
+            + '<div>' + esc(r.content || '默认好评') + '</div></div>'
+        ).join('') : emptyHtml('还没有收到评价');
+    })();
+</script>
+</body>
+</html>

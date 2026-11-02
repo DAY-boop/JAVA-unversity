@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>教材详情 · 校园二手教材</title>
+    <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+<header id="app-header"></header>
+<main class="container"><div id="root"><div class="loading">加载中…</div></div></main>
+
+<script src="js/app.js"></script>
+<script>
+    (async function () {
+        const me = await renderHeader();
+        const root = document.getElementById('root');
+        const bookId = qs('id');
+        if (!bookId) {
+            location.href = 'index.html';
+            return;
+        }
+
+        let book;
+        try {
+            book = await api.get('books/' + bookId);
+        } catch (e) {
+            root.innerHTML = emptyHtml('教材不存在或已被删除');
+            return;
+        }
+        const reviews = await api.get('reviews', { bookId: bookId });
+        const isOwner = me && me.id === book.sellerId;
+        const canBuy = !isOwner && book.status === 1 && book.stock > 0;
+
+        const meta = [
+            ['作者', book.author], ['出版社', book.publisher], ['版次', book.edition],
+            ['ISBN', book.isbn], ['适用课程', book.courseName], ['库存', book.stock + ' 本'],
+            ['成色', book.conditionLabel], ['浏览', book.viewCount + ' 次']
+        ].map(([k, v]) => '<div><dt>' + k + '</dt><dd>' + esc(v || '—') + '</dd></div>').join('');
+
+        root.innerHTML =
+            '<div class="card detail-card">'
+            + '<div class="detail-cover">' + coverHtml(book.coverUrl, book.title) + '</div>'
+            + '<div>'
+            + '<h1>' + esc(book.title) + '</h1>'
+            + '<div class="muted">' + esc(book.author || '佚名') + ' · ' + esc(book.categoryName || '未分类')
+            + ' · <span class="stars">' + stars(book.avgRating) + '</span> ' + (book.reviewCount || 0) + ' 条评价</div>'
+            + '<div class="price-row"><span class="price-lg">¥' + money(book.price) + '</span>'
+            + (book.originalPrice ? '<span class="muted">原价 ¥' + money(book.originalPrice) + '</span>' : '')
+            + '<span class="badge ' + (book.status === 1 ? 'ok' : 'gray') + '">' + esc(book.statusLabel) + '</span></div>'
+            + '<dl class="meta-list">' + meta + '</dl>'
+            + '<div class="desc">' + esc(book.description || '卖家没有填写描述') + '</div>'
+            + '</div></div>'
+
+            + '<div class="card">'
+            + '<h2>卖家</h2>'
+            + '<div class="row" style="display:flex;gap:12px;align-items:center">'
+            + '<div class="thumb" style="display:flex;align-items:center;justify-content:center">' + esc((book.sellerNickname || '?').slice(0, 1)) + '</div>'
+            + '<div><div><b>' + esc(book.sellerNickname || '未知用户') + '</b></div>'
+            + '<div class="muted">信用分 ' + esc(book.sellerCredit || 100) + '</div></div></div>'
+            + '</div>'
+
+            + '<div class="card" id="action-card"></div>'
+
+            + '<div class="card"><h2>教材评价（' + reviews.length + '）</h2><div id="review-list"></div></div>';
+
+        /* ---------- 操作区 ---------- */
+        const actionCard = document.getElementById('action-card');
+        function renderActions() {
+            if (isOwner) {
+                actionCard.innerHTML = '<h2>管理教材</h2>'
+                    + '<p class="muted">这是你发布的教材，可以编辑信息或调整上下架状态</p>'
+                    + '<div style="display:flex;gap:10px;flex-wrap:wrap">'
+                    + '<a class="btn" href="publish.html?id=' + book.id + '">编辑教材</a>'
+                    + (book.status === 1
+                        ? '<button class="btn btn-ghost" id="offline-btn">下架</button>'
+                        : '<button class="btn btn-ghost" id="online-btn">重新上架</button>')
+                    + '</div>';
+                const offlineBtn = document.getElementById('offline-btn');
+                if (offlineBtn) offlineBtn.onclick = () => changeStatus(2);
+                const onlineBtn = document.getElementById('online-btn');
+                if (onlineBtn) onlineBtn.onclick = () => changeStatus(1);
+                return;
+            }
+            if (!me) {
+                actionCard.innerHTML = '<h2>购买</h2><p class="muted">登录后即可下单，与卖家约定校内面交</p>'
+                    + '<a class="btn" href="login.html?redirect=' + encodeURIComponent(location.pathname + location.search) + '">登录后购买</a>';
+                return;
+            }
+            if (!canBuy) {
+                actionCard.innerHTML = '<h2>购买</h2><p class="muted">该教材当前不可购买（已售出或已下架）</p>'
+                    + '<button class="btn btn-ghost" onclick="toggleFavorite()">'
+                    + (book.favorite ? '取消收藏' : '收藏教材') + '</button>';
+                return;
+            }
+            actionCard.innerHTML = '<h2>下单购买</h2>'
+                + '<div class="form-grid">'
+                + '<div class="form-row"><label>购买数量</label><input class="input" id="qty" type="number" min="1" max="' + book.stock + '" value="1"></div>'
+                + '<div class="form-row"><label>交易地点</label><input class="input" id="place" placeholder="如：图书馆一楼大厅"></div>'
+                + '<div class="form-row"><label>联系方式</label><input class="input" id="contact" placeholder="手机号或微信号" value="' + esc(me.phone || '') + '"></div>'
+                + '<div class="form-row"><label>留言</label><input class="input" id="remark" placeholder="选填"></div>'
+                + '</div>'
+                + '<div style="display:flex;gap:10px;margin-top:4px">'
+                + '<button class="btn" id="buy-btn">立即下单（¥' + money(book.price) + '）</button>'
+                + '<button class="btn btn-ghost" onclick="toggleFavorite()">' + (book.favorite ? '取消收藏' : '收藏') + '</button>'
+                + '</div>';
+            document.getElementById('buy-btn').onclick = submitOrder;
+        }
+
+        async function submitOrder() {
+            const btn = document.getElementById('buy-btn');
+            btn.disabled = true;
+            try {
+                const data = await api.post('orders', {
+                    bookId: Number(book.id),
+                    quantity: Number(document.getElementById('qty').value),
+                    tradePlace: document.getElementById('place').value.trim(),
+                    contact: document.getElementById('contact').value.trim(),
+                    remark: document.getElementById('remark').value.trim()
+                });
+                toast('下单成功，请尽快付款', 'success');
+                setTimeout(() => location.href = 'order-detail.html?id=' + data.id, 600);
+            } catch (e) {
+                btn.disabled = false;
+            }
+        }
+
+        async function changeStatus(status) {
+            await api.put('books/' + book.id + '/status', { status: status });
+            toast(status === 1 ? '已重新上架' : '已下架', 'success');
+            setTimeout(() => location.reload(), 500);
+        }
+
+        window.toggleFavorite = async function () {
+            try {
+                if (book.favorite) {
+                    await api.del('favorites/' + book.id);
+                    book.favorite = false;
+                    toast('已取消收藏');
+                } else {
+                    await api.post('favorites/' + book.id);
+                    book.favorite = true;
+                    toast('已加入收藏', 'success');
+                }
+                renderActions();
+            } catch (e) { /* 已提示 */ }
+        };
+
+        renderActions();
+
+        /* ---------- 评价列表 ---------- */
+        const reviewList = document.getElementById('review-list');
+        reviewList.innerHTML = reviews.length ? reviews.map(r =>
+            '<div class="review"><div class="review-head"><span>' + esc(r.reviewerNickname || '匿名')
+            + ' <span class="stars">' + stars(r.rating) + '</span></span><span>' + esc(r.createdAt || '') + '</span></div>'
+            + '<div>' + esc(r.content || '默认好评') + '</div></div>'
+        ).join('') : emptyHtml('还没有评价，完成交易后可以来评价');
+    })();
+</script>
+</body>
+</html>

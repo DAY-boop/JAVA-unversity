@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的收藏 · 校园二手教材</title>
+    <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+<header id="app-header"></header>
+
+<main class="container">
+    <div class="card">
+        <h2>我的收藏</h2>
+        <div id="list"><div class="loading">加载中…</div></div>
+        <div id="pager" class="pager"></div>
+    </div>
+</main>
+
+<script src="js/app.js"></script>
+<script>
+    (async function () {
+        const me = await renderHeader();
+        if (requireLogin(me)) return;
+
+        const listEl = document.getElementById('list');
+        const pagerEl = document.getElementById('pager');
+        let currentPage = 1;
+
+        window.removeFavorite = async function (bookId) {
+            try {
+                await api.del('favorites/' + bookId);
+                toast('已取消收藏');
+                load(currentPage);
+            } catch (e) { /* 已提示 */ }
+        };
+
+        async function load(page) {
+            currentPage = page || 1;
+            listEl.innerHTML = '<div class="loading">加载中…</div>';
+            const data = await api.get('favorites', { page: currentPage, size: 12 });
+            if (!data.list.length) {
+                listEl.innerHTML = emptyHtml('还没有收藏任何教材，去教材市场逛逛吧');
+                pagerEl.innerHTML = '';
+                return;
+            }
+            listEl.innerHTML = '<div class="grid-books">' + data.list.map(book =>
+                '<div><a class="book-card" href="book-detail.html?id=' + book.id + '">'
+                + '<div class="cover">' + coverHtml(book.coverUrl, book.title) + '</div>'
+                + '<div class="book-body"><div class="book-title">' + esc(book.title) + '</div>'
+                + '<div class="book-meta">' + esc(book.conditionLabel || '') + ' · ' + esc(book.categoryName || '') + '</div>'
+                + '<div class="book-foot"><span class="price">¥' + money(book.price) + '</span>'
+                + '<span class="badge ' + (book.status === 1 ? 'ok' : 'gray') + '">' + esc(book.statusLabel) + '</span>'
+                + '</div></div></a>'
+                + '<button class="btn btn-ghost btn-sm btn-block" style="margin-top:6px" '
+                + 'onclick="removeFavorite(' + book.id + ')">取消收藏</button></div>'
+            ).join('') + '</div>';
+            renderPager(pagerEl, data, load);
+        }
+
+        load(1);
+    })();
+</script>
+</body>
+</html>

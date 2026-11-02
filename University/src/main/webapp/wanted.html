@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>教材求购 · 校园二手教材</title>
+    <link rel="stylesheet" href="css/main.css">
+    <style>
+        .wanted-item { background:#fff; border:1px solid var(--border); border-radius:var(--radius); padding:16px 18px; margin-bottom:12px; }
+        .wanted-head { display:flex; justify-content:space-between; gap:14px; align-items:flex-start; }
+        .wanted-title { font-size:16px; font-weight:600; }
+        .wanted-meta { color:var(--muted); font-size:13px; margin:4px 0; }
+        .wanted-desc { background:#f8fafc; border-radius:8px; padding:10px 12px; margin:10px 0; color:#475569; white-space:pre-wrap; }
+        .wanted-contact { font-size:13px; }
+        .wanted-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+    </style>
+</head>
+<body>
+<header id="app-header"></header>
+
+<main class="container">
+    <div class="card" id="publish-card">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+            <div>
+                <h2>教材求购</h2>
+                <p class="muted" style="margin:0">没找到想要的书？发一条求购，让卖家来找你</p>
+            </div>
+            <button class="btn" id="toggle-form">发布求购</button>
+        </div>
+
+        <form id="wanted-form" class="hidden" style="margin-top:18px;border-top:1px solid var(--border);padding-top:16px">
+            <div class="form-grid">
+                <div class="form-row">
+                    <label>书名 *</label>
+                    <input class="input" id="w-title" required maxlength="120" placeholder="如：高等数学（第七版）上册">
+                </div>
+                <div class="form-row">
+                    <label>作者</label>
+                    <input class="input" id="w-author">
+                </div>
+                <div class="form-row">
+                    <label>出版社</label>
+                    <input class="input" id="w-publisher">
+                </div>
+                <div class="form-row">
+                    <label>适用课程</label>
+                    <input class="input" id="w-course">
+                </div>
+                <div class="form-row">
+                    <label>类目</label>
+                    <select class="input" id="w-category"><option value="">不限</option></select>
+                </div>
+                <div class="form-row">
+                    <label>成色要求</label>
+                    <select class="input" id="w-condition">
+                        <option value="">不限</option>
+                        <option value="1">九五新</option>
+                        <option value="2">九成新</option>
+                        <option value="3">八成新</option>
+                        <option value="4">七成新</option>
+                        <option value="5">六成新及以下</option>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <label>期望价格（元）</label>
+                    <input class="input" id="w-price" type="number" min="0" step="0.01">
+                </div>
+                <div class="form-row">
+                    <label>联系方式</label>
+                    <input class="input" id="w-contact" maxlength="64" placeholder="手机号 / 微信号">
+                </div>
+            </div>
+            <div class="form-row">
+                <label>补充说明</label>
+                <textarea class="input" id="w-desc" maxlength="1000" placeholder="例如：需要上册，有无笔记都可以，图书馆面交"></textarea>
+            </div>
+            <button class="btn" type="submit" id="w-submit">提交求购</button>
+            <button class="btn btn-ghost" type="button" id="w-cancel">取消</button>
+        </form>
+    </div>
+
+    <div class="card filters" style="grid-template-columns:1.6fr 1fr 1fr auto auto">
+        <input class="input" id="keyword" placeholder="搜索书名、作者或课程">
+        <select class="input" id="category"><option value="">全部类目</option></select>
+        <select class="input" id="status">
+            <option value="0">求购中</option>
+            <option value="1">已买到</option>
+            <option value="2">已关闭</option>
+        </select>
+        <button class="btn" id="search-btn">搜索</button>
+        <button class="btn btn-ghost" id="mine-btn">只看我的</button>
+    </div>
+
+    <div id="list"><div class="loading">加载中…</div></div>
+    <div id="pager" class="pager"></div>
+</main>
+
+<script src="js/app.js"></script>
+<script>
+    (async function () {
+        const me = await renderHeader();
+        const listEl = document.getElementById('list');
+        const pagerEl = document.getElementById('pager');
+        const form = document.getElementById('wanted-form');
+        const categorySelect = document.getElementById('category');
+        const formCategory = document.getElementById('w-category');
+        let mineOnly = false;
+        let currentPage = 1;
+
+        // 类目下拉
+        const tree = await api.get('categories');
+        tree.forEach(parent => {
+            const group = document.createElement('optgroup');
+            group.label = parent.name;
+            const group2 = document.createElement('optgroup');
+            group2.label = parent.name;
+            parent.children.forEach(child => {
+                const o1 = document.createElement('option');
+                o1.value = child.id;
+                o1.textContent = child.name;
+                group.appendChild(o1);
+                const o2 = document.createElement('option');
+                o2.value = child.id;
+                o2.textContent = child.name;
+                group2.appendChild(o2);
+            });
+            categorySelect.appendChild(group);
+            formCategory.appendChild(group2);
+        });
+
+        document.getElementById('toggle-form').onclick = () => {
+            if (requireLogin(me)) return;
+            form.classList.toggle('hidden');
+            if (!form.classList.contains('hidden')) {
+                document.getElementById('w-title').focus();
+                if (!document.getElementById('w-contact').value && me.phone) {
+                    document.getElementById('w-contact').value = me.phone;
+                }
+            }
+        };
+        document.getElementById('w-cancel').onclick = () => form.classList.add('hidden');
+
+        form.onsubmit = async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('w-submit');
+            btn.disabled = true;
+            try {
+                await api.post('wanted', {
+                    title: document.getElementById('w-title').value.trim(),
+                    author: document.getElementById('w-author').value.trim(),
+                    publisher: document.getElementById('w-publisher').value.trim(),
+                    courseName: document.getElementById('w-course').value.trim(),
+                    categoryId: formCategory.value ? Number(formCategory.value) : null,
+                    conditionLevel: document.getElementById('w-condition').value
+                        ? Number(document.getElementById('w-condition').value) : null,
+                    expectedPrice: document.getElementById('w-price').value
+                        ? Number(document.getElementById('w-price').value) : null,
+                    contact: document.getElementById('w-contact').value.trim(),
+                    campus: me.campus || '',
+                    description: document.getElementById('w-desc').value.trim()
+                });
+                toast('求购已发布', 'success');
+                form.reset();
+                form.classList.add('hidden');
+                mineOnly = true;
+                load(1);
+            } catch (err) {
+                btn.disabled = false;
+            }
+        };
+
+        function render(data) {
+            if (!data.list.length) {
+                listEl.innerHTML = emptyHtml(mineOnly ? '你还没有发布求购' : '暂时没有求购信息');
+                return;
+            }
+            listEl.innerHTML = data.list.map(w => {
+                const isOwner = me && me.id === w.userId;
+                const actions = [];
+                if (isOwner) {
+                    if (w.status === 0) {
+                        actions.push('<button class="btn btn-sm" data-act="1" data-id="' + w.id + '">标记已买到</button>');
+                        actions.push('<button class="btn btn-ghost btn-sm" data-act="2" data-id="' + w.id + '">关闭求购</button>');
+                    } else {
+                        actions.push('<button class="btn btn-ghost btn-sm" data-act="0" data-id="' + w.id + '">重新开启</button>');
+                    }
+                }
+                return '<div class="wanted-item">'
+                    + '<div class="wanted-head">'
+                    + '<div>'
+                    + '<div class="wanted-title">' + esc(w.title)
+                    + ' <span class="badge ' + (w.status === 0 ? 'ok' : 'gray') + '">' + esc(w.statusLabel) + '</span></div>'
+                    + '<div class="wanted-meta">'
+                    + (w.expectedPrice != null ? '期望价 ¥' + money(w.expectedPrice) + ' · ' : '')
+                    + '成色要求 ' + esc(w.conditionLabel || '不限')
+                    + ' · ' + esc(w.categoryName || '未分类')
+                    + ' · ' + esc(w.userNickname || '') + ' · ' + esc(w.createdAt || '')
+                    + '</div></div>'
+                    + '</div>'
+                    + (w.description ? '<div class="wanted-desc">' + esc(w.description) + '</div>' : '')
+                    + '<div class="wanted-contact">联系方式：'
+                    + (w.contactVisible
+                        ? '<b>' + esc(w.contact || '未填写') + '</b>'
+                        : '<a href="login.html" style="color:#2563eb">登录后可见</a>')
+                    + '</div>'
+                    + (actions.length ? '<div class="wanted-actions">' + actions.join('') + '</div>' : '')
+                    + '</div>';
+            }).join('');
+        }
+
+        listEl.addEventListener('click', async (e) => {
+            const btn = e.target.closest('button[data-act]');
+            if (!btn) return;
+            btn.disabled = true;
+            try {
+                await api.put('wanted/' + btn.dataset.id + '/status', { status: Number(btn.dataset.act) });
+                toast('状态已更新', 'success');
+                load(currentPage);
+            } catch (err) {
+                btn.disabled = false;
+            }
+        });
+
+        async function load(page) {
+            currentPage = page || 1;
+            listEl.innerHTML = '<div class="loading">加载中…</div>';
+            let data;
+            if (mineOnly) {
+                if (requireLogin(me)) return;
+                data = await api.get('wanted/mine', { page: currentPage, size: 10 });
+            } else {
+                data = await api.get('wanted', {
+                    q: document.getElementById('keyword').value.trim(),
+                    categoryId: categorySelect.value,
+                    status: document.getElementById('status').value,
+                    page: currentPage,
+                    size: 10
+                });
+            }
+            document.getElementById('mine-btn').textContent = mineOnly ? '看全部求购' : '只看我的';
+            render(data);
+            renderPager(pagerEl, data, load);
+        }
+
+        document.getElementById('search-btn').onclick = () => { mineOnly = false; load(1); };
+        document.getElementById('keyword').addEventListener('keydown', e => {
+            if (e.key === 'Enter') { mineOnly = false; load(1); }
+        });
+        document.getElementById('status').onchange = () => { mineOnly = false; load(1); };
+        document.getElementById('mine-btn').onclick = () => {
+            if (requireLogin(me)) return;
+            mineOnly = !mineOnly;
+            load(1);
+        };
+
+        load(1);
+    })();
+</script>
+</body>
+</html>
